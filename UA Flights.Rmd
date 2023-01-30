@@ -1,0 +1,391 @@
+---
+title: "UA Flights Departure Delay Analysis"
+author: "Wai Chun (Jun) Chong"
+output: 
+  html_document:
+    toc: true
+    toc_float: 
+      collapsed: false
+      smooth_scroll: false
+    toc_depth: 2
+    number_sections: true
+date: "28 October 2022"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(fig.align = 'center', include = TRUE, echo = FALSE, eval = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r data and packages}
+library(nycflights13)
+library(tidyverse)
+library(lubridate)
+library(knitr)
+library(mosaic)
+```
+
+# Problem Statement
+To improve both efficiency and customer satisfaction, I would mainly focus study the temporal and environmental factors causing the flight delay including but not limited to:
+
+1. **Time of day**
+2. **Time of year**
+3. **Temperature**
+4. **Wind speed**
+5. **Precipitation**
+6. **Visibility** 
+
+from data `flights` and `weather`.
+
+Due to high value of customer satisfaction, we should not ignore the outlier cases in each factor, but instead we have to take account of those cases and analyze them. Therefore, I would compare the mean and median of each case to find out which numerical summary we should use for analysis and permutation test. 
+
+```{r flights and weather datasets, include = FALSE}
+flights
+weather
+```
+
+```{r Inner Join Flights and Weather on origin and time_hour}
+df <- flights %>%
+  inner_join(weather, by = c('origin', 'time_hour'))
+```
+
+```{r UA in 2013}
+ua <- df %>%
+  mutate(month = lubridate::month(time_hour),
+         hour = lubridate::hour(time_hour)) %>%
+  select(month, hour, dep_delay, wind_speed, carrier, precip, temp, visib) %>%
+  filter(carrier == 'UA')
+```
+
+```{r tables}
+kable(ua[1:10,], col.names = c('Month', 'Hour', 'Departure Delay',
+                        'Wind Speed', 'Carrier', 'Precipitation',
+                        'Temperature', 'Visibility'),
+      align = 'ccc',
+      caption = 'Table 1.1 The total records of factors and departure delay data in Year 2013')
+```
+
+---
+
+# Time of year and Departure Delay
+```{r summary for time of year}
+kable(favstats(~dep_delay | month, data = ua),
+      align = 'ccc',
+      caption = 'Table 2.1 The monthly numerical summaries of departure delay in Year 2013')
+```
+
+```{r Time of Year vs Dep Delay, fig.dim = c(5,3), out.width="85%", fig.cap = "Figure 2.2 The Boxplot and Mean Lineplot of Departure Delay over the Year 2013"}
+ua %>%
+  group_by(month) %>%
+  mutate(mean = mean(dep_delay, na.rm = TRUE)) %>%
+  ggplot(aes(x = factor(month), y = dep_delay)) +
+    geom_point(alpha = 0.05, size = 0.05) +
+    geom_boxplot(outlier.shape = NA) + 
+    scale_y_continuous(limits = quantile(ua$dep_delay, c(0.1, 0.9), na.rm = TRUE)) +
+    geom_line(aes(x = month, y = mean), colour = 'blue') +
+    labs(
+      title = 'Departure Delay over Year 2013',
+      x = 'Month',
+      y = 'Departure Delay (mins)'
+    )
+```
+
+From the box-plot and monthly mean line-plot of departure delays, it seems that mean shows a significant differences in comparison. Besides, Summer (June, July, August) seems to show a great mean difference with After Summer (September, October, November).
+
+## Summer vs After Summer
+$H_{0}: \mu_{s} - \mu_{a} = 0$  
+$H_{a}: \mu_{s} - \mu_{a} > 0$
+```{r Permutation Test for Summer vs After Summer}
+observed <- mean(ua$dep_delay[ua$month>=6 & ua$month<=8], na.rm = TRUE) - mean(ua$dep_delay[ua$month>=9 & ua$month<=11], na.rm = TRUE)
+
+#N = number of simulations we will use
+N <- 10^4 - 1
+
+result <- numeric(N)
+
+sample.size <- nrow(ua)
+
+group.1.size <- nrow(ua[ua$month>=6 & ua$month<=8,])
+
+#use a for loop to cycle through values of i ranging from 1 to N
+for(i in 1:N)
+{
+  index <- sample(sample.size, size=group.1.size, replace = FALSE)
+
+  result[i] <- mean(ua$dep_delay[index], na.rm = TRUE) - mean(ua$dep_delay[-index], na.rm = TRUE)
+}
+
+p <- (sum(result >= observed) + 1) / (N + 1)
+```
+
+In the conclusion, since p-value is `r p` (less than 0.05), it is statistically significant to say that there is a difference of departure delays between Summer and After Summer.
+
+# Time of day and Departure delay
+```{r summary for time of day}
+kable(favstats(~dep_delay | hour, data = ua),
+      align = 'ccc',
+      caption = 'Table 3.1 The monthly numerical summaries of departure delay in Year 2013')
+```
+
+```{r Time of Day vs Dep Delay, fig.dim = c(5,3), out.width="85%", fig.cap = "Figure 3.2 The Boxplot and Mean Lineplot of Average Departure Delay over the Day"}
+ua %>%
+  group_by(hour) %>%
+  mutate(mean = mean(dep_delay, na.rm = TRUE)) %>%
+  ggplot(aes(x = factor(hour), y = dep_delay)) +
+    geom_point(alpha = 0.05, size = 0.05) +
+    geom_boxplot(outlier.shape = NA) + 
+    scale_y_continuous(limits = quantile(ua$dep_delay, c(0.1, 0.9), na.rm = TRUE)) +
+    geom_line(aes(x = hour-4, y = mean), colour = 'blue') +
+    labs(
+      title = 'Departure Delay over each Day',
+      x = 'Hours',
+      y = 'Departure Delay (mins)'
+    )
+```
+
+From the box-plot and hourly mean line-plot of departure delays, it seems that mean shows a significant differences in comparison. Besides, night hours (after 8pm) seems to have a greater significant difference than early morning hours (before 8am).  
+
+## Night hours vs Early morning hours
+$H_{0}: \mu_{n} - \mu_{e} = 0$  
+$H_{a}: \mu_{n} - \mu_{e} > 0$
+```{r Permutation Test for Night hours and Early morning hours}
+observed <- mean(ua$dep_delay[ua$hour>20], na.rm = TRUE) - mean(ua$dep_delay[ua$hour<8], na.rm = TRUE)
+
+#N = number of simulations we will use
+N <- 10^4 - 1
+
+result <- numeric(N)
+
+sample.size <- nrow(ua)
+
+group.1.size <- nrow(ua[ua$hour>20,])
+
+#use a for loop to cycle through values of i ranging from 1 to N
+for(i in 1:N)
+{
+  index <- sample(sample.size, size=group.1.size, replace = FALSE)
+
+  result[i] <- mean(ua$dep_delay[index], na.rm = TRUE) - mean(ua$dep_delay[-index], na.rm = TRUE)
+}
+
+p <- (sum(result >= observed) + 1) / (N + 1)
+```
+
+In the conclusion, since p-value is `r p` (less than 0.05), it is statistically significant to say that there is a difference of departure delays between night hours (after 8pm) and early morning hours (before 8am).  
+
+# Temperature and Departure Delay
+```{r Temperature vs Dep Delay, fig.dim = c(5,3), out.width="85%", fig.cap = "Figure 4.1 The Mean and Median Lineplot of Departure Delay over the Temperature"}
+ua %>%
+  ggplot(aes(x = temp, y = dep_delay)) +
+    geom_point(alpha = 0.05, size = 0.05) +
+    stat_summary(fun = "median", geom = "line", color = "blue") +
+    stat_summary(fun = "mean", geom = "line", color = "red") +    scale_y_continuous(limits = quantile(ua$dep_delay, c(0.1, 0.9), na.rm = TRUE)) +
+    labs(
+      title = 'Departure Delay vs Temperature',
+      x = 'Temperature (degree Farenheit)',
+      y = 'Departure Delay (mins)'
+    )
+```
+
+From the line and point plots above, we see that there is a significant difference shown from mean of departure delays. It does not really show a certain range of temperature that indicate will be a great influence to the departure delay, but fluctuating throughout the entire data. To my personal interest, I would like to do a test on extreme temperature vs moderate temperature.  
+
+## Extreme Temperature vs Moderate Temperature
+```{r tables for temperature and departure delay}
+d <- cbind(mean(ua$dep_delay[ua$temp>80 | ua$temp<40], na.rm = TRUE),
+           mean(ua$dep_delay[ua$temp<=80 & ua$temp>=40], na.rm = TRUE))
+kable(d,
+      col.names = c('Mean(Extreme Temperature)', 'Mean(Moderate Temperature)'),
+      align = 'ccc',
+      caption = 'Table 4.2 The Mean of Departure Delay with respect to Extreme and Moderate Temperature')
+```
+
+$H_{0}: \mu_{T} - \mu_{t} = 0$  
+$H_{a}: \mu_{T} - \mu_{t} > 0$
+```{r Permutation Test for Extreme Temperature and Moderate Temperature}
+observed <- mean(ua$dep_delay[ua$temp>80 | ua$temp<40], na.rm = TRUE) - mean(ua$dep_delay[ua$temp<=80 & ua$temp>=40], na.rm = TRUE)
+
+#N = number of simulations we will use
+N <- 10^4 - 1
+
+result <- numeric(N)
+
+sample.size <- nrow(ua)
+
+group.1.size <- nrow(ua[(ua$temp>80 | ua$temp<40),])
+
+#use a for loop to cycle through values of i ranging from 1 to N
+for(i in 1:N)
+{
+  index <- sample(sample.size, size=group.1.size, replace = FALSE)
+
+  result[i] <- mean(ua$dep_delay[index], na.rm = TRUE) - mean(ua$dep_delay[-index], na.rm = TRUE)
+}
+
+p <- (sum(result >= observed) + 1) / (N + 1)
+```
+
+In the conclusion, since p-value is `r p` (less than 0.05), it is statistically significant to say that there is a difference of departure delays between extreme temperature and moderate temperature.  
+
+# Wind speed and Departure Delay
+```{r Wind Speed vs Dep Delay, fig.dim = c(5,3), out.width="85%", fig.cap = "Figure 5.1 The Mean and Median Lineplot of Departure Delay over the Wind Speed"}
+ua %>%
+  ggplot(aes(x = wind_speed, y = dep_delay)) +
+    geom_point(alpha = 0.05, size = 0.05) +
+    stat_summary(fun = "median", geom = "line", color = "blue") +
+    stat_summary(fun = "mean", geom = "line", color = "red") +
+    scale_y_continuous(limits = quantile(ua$dep_delay, c(0.1, 0.9), na.rm = TRUE)) +
+    labs(
+      title = 'Departure Delay vs Wind Speed',
+      x = 'Wind Speed (mph)',
+      y = 'Departure Delay (mins)'
+    )
+```
+
+From both mean and median line-plots above, we can see that both mean and median plots shows a greater significant fluctuation of departure delays as wind speed increases. Therefore, I will do a test on high wind speed vs low wind speed using permutation test on ratio of standard deviation.  
+
+## High Wind Speed vs Low Wind Speed
+```{r tables for wind speed and departure delay}
+d <- cbind(sd(ua$dep_delay[ua$wind_speed>30], na.rm = TRUE),
+           sd(ua$dep_delay[ua$wind_speed<10], na.rm = TRUE))
+kable(d,
+      col.names = c('SD(High Wind)', 'SD(Low Wind)'),
+      align = 'ccc',
+      caption = 'Table 5.2 The SD of Departure Delay with respect to High and Low Wind')
+```
+
+$H_{0}: \frac{\sigma_{W}}{\sigma_{w}} = 1$  
+$H_{a}: \frac{\sigma_{W}}{\sigma_{w}} > 1$
+```{r Permutation Test for High and Low Wind Speed}
+observed <- sd(ua$dep_delay[ua$wind_speed>30], na.rm = TRUE)/ sd(ua$dep_delay[ua$wind_speed<10], na.rm = TRUE)
+
+#N = number of simulations we will use
+N <- 10^4 - 1
+
+result <- numeric(N)
+
+sample.size <- nrow(ua)
+
+group.1.size <- nrow(ua[ua$wind_speed>30,])
+
+#use a for loop to cycle through values of i ranging from 1 to N
+for(i in 1:N)
+{
+  index <- sample(sample.size, size=group.1.size, replace = FALSE)
+
+  result[i] <- sd(ua$dep_delay[index], na.rm = TRUE)/ sd(ua$dep_delay[-index], na.rm = TRUE)
+}
+
+p <- (sum(result >= observed) + 1) / (N + 1)
+```
+
+In the conclusion, since p-value is `r p` (greater than 0.05), it is not statistically significant to say that there is a greater ratio difference of departure delays between high wind speed and low speed wind.  
+
+# Precipitation and Departure Delay
+```{r Precipitation vs Departure Delay, fig.dim = c(5,3), out.width="85%", fig.cap = "Figure 6.1 The Mean and Median Lineplot of Departure Delay over the Precipitation"}
+ua %>%
+  ggplot(aes(x = precip, y = dep_delay)) +
+    geom_point(alpha = 0.2, size = 0.2) +
+    stat_summary(fun = "median", geom = "line", color = "blue") +
+    stat_summary(fun = "mean", geom = "line", color = "red") +
+    scale_y_continuous(limits = quantile(ua$dep_delay, c(0.1, 0.9), na.rm = TRUE)) +
+    labs(
+      title = 'Departure Delay vs Precipitation',
+      x = 'Precipitation',
+      y = 'Departure Delay (mins)'
+    )
+```
+
+The mean and median plots above shows fluctuations of departure delays as precipitation increases. Since it does not indicate a significant difference between median and mean, due to the existence of great number of outlier, we will do a permutation test on median difference of high and low precipitations.   
+
+## High Precipitation vs Low Precipitation
+```{r tables for precipitation and departure delay}
+d <- cbind(median(ua$dep_delay[ua$precip>0.3], na.rm = TRUE),
+           median(ua$dep_delay[ua$precip<=0.3], na.rm = TRUE))
+kable(d,
+      col.names = c('Median(High Precipitation)', 'Median(Low Precipitation)'),
+      align = 'ccc',
+      caption = 'Table 6.2 The Median of Departure Delay with respect to High and Low Precipitation')
+```
+
+$H_{0}: Med_{P} - Med_{p} = 0$  
+$H_{a}: Med_{P} - Med_{p} > 0$
+```{r Permutation Test for High and Low Precipitation}
+observed <- median(ua$dep_delay[ua$precip>0.3], na.rm = TRUE) - median(ua$dep_delay[ua$precip<=0.3], na.rm = TRUE)
+
+#N = number of simulations we will use
+N <- 10^4 - 1
+
+result <- numeric(N)
+
+sample.size <- nrow(ua)
+
+group.1.size <- nrow(ua[ua$precip>0.3,])
+
+#use a for loop to cycle through values of i ranging from 1 to N
+for(i in 1:N)
+{
+  index <- sample(sample.size, size=group.1.size, replace = FALSE)
+
+  result[i] <- median(ua$dep_delay[index], na.rm = TRUE) - median(ua$dep_delay[-index], na.rm = TRUE)
+}
+
+p <- (sum(result >= observed) + 1) / (N + 1)
+```
+
+In the conclusion, since p-value is `r p` (less than 0.05), it is statistically significant to say that there is a median difference of departure delays between high and low precipitation.  
+
+# Visibility and Departure Delay
+```{r Visibility vs Departure Delay, fig.dim = c(5,3), out.width="85%", fig.cap = "Figure 7.1 The Mean and Median Lineplot of Departure Delay over the Visibility"}
+ua %>%
+  mutate(visib.round = ceiling(visib)) %>%
+  group_by(visib.round) %>%
+  mutate(mean = mean(dep_delay, na.rm = TRUE)) %>%
+  ggplot(aes(x = factor(visib.round), y = dep_delay)) +
+    geom_point(alpha = 0.2, size = 0.2) +
+    geom_boxplot(outlier.shape = NA) + 
+    scale_y_continuous(limits = quantile(ua$dep_delay, c(0.1, 0.9), na.rm = TRUE)) +
+    geom_line(aes(x = visib.round + 1, y = mean), colour = 'blue') +
+    labs(
+      title = 'Departure Delay vs Visibility',
+      x = 'Visibility',
+      y = 'Departure Delay (mins)'
+    )
+```
+
+From the box-plot and mean line-plot of departure delays vs visibility, it seems that mean shows a significant differences in comparison. Besides, it seems that low visibility tends to have a higher departure delays than high visibility. Therefore, we will do a permutation test on mean difference of departure delays with respect to visibility.  
+
+## High visibility vs Low visibility
+```{r tables for visibility and departure delay}
+d <- cbind(mean(ua$dep_delay[ua$visib>=5], na.rm = TRUE),
+           mean(ua$dep_delay[ua$visib<5], na.rm = TRUE))
+kable(d,
+      col.names = c('Mean(High Visibility)', 'Mean(Low Visibility)'),
+      align = 'ccc',
+      caption = 'Table 7.2 The Mean of Departure Delay with respect to High and Low Visibility')
+```
+
+$H_{0}: \mu_{V} - \mu_{v} = 0$  
+$H_{a}: \mu_{V} - \mu_{v} > 0$
+```{r Permutation Test for High and Low Visibility}
+observed <- mean(ua$dep_delay[ua$visib>=5], na.rm = TRUE) - mean(ua$dep_delay[ua$visib<5], na.rm = TRUE)
+
+#N = number of simulations we will use
+N <- 10^4 - 1
+
+result <- numeric(N)
+
+sample.size <- nrow(ua)
+
+group.1.size <- nrow(ua[ua$visib>=5,])
+
+#use a for loop to cycle through values of i ranging from 1 to N
+for(i in 1:N)
+{
+  index <- sample(sample.size, size=group.1.size, replace = FALSE)
+
+  result[i] <- mean(ua$dep_delay[index], na.rm = TRUE) - mean(ua$dep_delay[-index], na.rm = TRUE)
+}
+
+p <- (sum(result <= observed) + 1) / (N + 1)
+```
+
+In the conclusion, since p-value is `r p` (less than 0.05), it is statistically significant to say that there is a mean difference of departure delays between high and low visibility.  
